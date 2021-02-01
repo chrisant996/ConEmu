@@ -33,7 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //	#define SHOW_STARTED_MSGBOX
 //	#define SHOW_INJECT_MSGBOX
 	#define SHOW_EXE_MSGBOX // show a MsgBox when we are loaded into known exe-process (SHOW_EXE_MSGBOX_NAME)
-	#define SHOW_EXE_MSGBOX_NAME L"|xxx.exe|yyy.exe|"
+	#define SHOW_EXE_MSGBOX_NAME L"|xxx.exe|dump.exe|"
 //	#define SLEEP_EXE_UNTIL_DEBUGGER
 //	#define SHOW_EXE_TIMINGS
 //	#define PRINT_EXE_TIMINGS
@@ -1426,7 +1426,7 @@ void DoDllStop(bool bFinal, ConEmuHkDllState bFromTerminate)
 		AsyncCmdQueue::Terminate();
 		DLOGEND1();
 	}
-	
+
 	DLL_STOP_STEP(4);
 
 	// Issue 689: Progress stuck at 100%
