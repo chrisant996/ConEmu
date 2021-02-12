@@ -42,7 +42,7 @@ public:
 	{
 		store(newValue);
 	}
-	
+
 	Type load()
 	{
 		return static_cast<Type>(InterlockedCompareExchange(&data_, 0, 0));

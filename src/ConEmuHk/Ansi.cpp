@@ -61,6 +61,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ///* ***************** */
 #include "Ansi.h"
+static DWORD gAnsiTlsIndex = 0;
 
 #include "DllOptions.h"
 #include "../common/WObjects.h"
@@ -826,6 +827,10 @@ void CEAnsi::ReSetDisplayParm(HANDLE hConsoleOutput, BOOL bReset, BOOL bApply)
 }
 
 
+#if defined(DUMP_UNKNOWN_ESCAPES) || defined(DUMP_WRITECONSOLE_LINES)
+static MAtomic<int32_t> nWriteCallNo{ 0 };
+#endif
+
 int CEAnsi::DumpEscape(LPCWSTR buf, size_t cchLen, DumpEscapeCodes iUnknown)
 {
 	int result = 0;
@@ -839,7 +844,6 @@ int CEAnsi::DumpEscape(LPCWSTR buf, size_t cchLen, DumpEscapeCodes iUnknown)
 
 	wchar_t szDbg[200];
 	size_t nLen = cchLen;
-	static MAtomic<int32_t> nWriteCallNo{ 0 };
 
 	switch (iUnknown)  // NOLINT(clang-diagnostic-switch-enum)
 	{
@@ -4484,13 +4488,43 @@ CEAnsi* CEAnsi::Object()
 {
 	CLastErrorGuard errGuard;
 
-	thread_local CEAnsi object{};
-
-	if (!object.initialized_)
+	if (!gAnsiTlsIndex)
 	{
-		object.GetDefaultTextAttr(); // Initialize "default attributes";
-		object.initialized_ = true;
+		gAnsiTlsIndex = TlsAlloc();
 	}
 
-	return &object;
+	if ((!gAnsiTlsIndex) || (gAnsiTlsIndex == TLS_OUT_OF_INDEXES))
+	{
+		_ASSERTEX(gAnsiTlsIndex && gAnsiTlsIndex != TLS_OUT_OF_INDEXES);
+		return nullptr;
+	}
+
+	// Don't use thread_local, it doesn't work in WinXP in dynamically loaded dlls
+	CEAnsi* obj = static_cast<CEAnsi*>(TlsGetValue(gAnsiTlsIndex));
+	if (!obj)
+	{
+		obj = new CEAnsi;
+		if (obj)
+			obj->GetDefaultTextAttr(); // Initialize "default attributes"
+		TlsSetValue(gAnsiTlsIndex, obj);
+	}
+
+	return obj;
+}
+
+//static
+void CEAnsi::Release()
+{
+	if (gAnsiTlsIndex && (gAnsiTlsIndex != TLS_OUT_OF_INDEXES))
+	{
+		CEAnsi* p = static_cast<CEAnsi*>(TlsGetValue(gAnsiTlsIndex));
+		if (p)
+		{
+			if (IsHeapInitialized())
+			{
+				delete p;
+			}
+			TlsSetValue(gAnsiTlsIndex, nullptr);
+		}
+	}
 }

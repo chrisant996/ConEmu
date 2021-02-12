@@ -33,7 +33,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //	#define SHOW_STARTED_MSGBOX
 //	#define SHOW_INJECT_MSGBOX
 	#define SHOW_EXE_MSGBOX // show a MsgBox when we are loaded into known exe-process (SHOW_EXE_MSGBOX_NAME)
-	#define SHOW_EXE_MSGBOX_NAME L"|xxx.exe|dump.exe|"
+	#define SHOW_EXE_MSGBOX_NAME L"|cmd.exe|dump.exe|"
 //	#define SLEEP_EXE_UNTIL_DEBUGGER
 //	#define SHOW_EXE_TIMINGS
 //	#define PRINT_EXE_TIMINGS
@@ -1884,7 +1884,7 @@ BOOL DllMain_ThreadDetach(HANDLE hModule, DWORD  ul_reason_for_call)
 	DLOG0("DllMain.DLL_THREAD_DETACH",ul_reason_for_call);
 	gDllMainCallInfo[DLL_THREAD_DETACH].OnCall();
 
-	DWORD nTID = GetCurrentThreadId();
+	const DWORD nTID = GetCurrentThreadId();
 	bool bNeedDllStop = false;
 
 	#ifdef SHOW_SHUTDOWN_STEPS
@@ -1900,6 +1900,8 @@ BOOL DllMain_ThreadDetach(HANDLE hModule, DWORD  ul_reason_for_call)
 		gnDllState |= ds_DllDeinitializing;
 	}
 
+	CEAnsi::Release();
+
 	if (IsHeapInitialized())
 	{
 		gStartedThreads.Del(nTID);
@@ -1913,7 +1915,7 @@ BOOL DllMain_ThreadDetach(HANDLE hModule, DWORD  ul_reason_for_call)
 		DLOGEND1();
 	}
 
-	LONG nThreadCount = gDllMainCallInfo[DLL_THREAD_ATTACH].nCallCount - gDllMainCallInfo[DLL_THREAD_DETACH].nCallCount;
+	const LONG nThreadCount = gDllMainCallInfo[DLL_THREAD_ATTACH].nCallCount - gDllMainCallInfo[DLL_THREAD_DETACH].nCallCount;
 	ShutdownStep(L"DLL_THREAD_DETACH done, left=%i", nThreadCount);
 
 	#if 0
