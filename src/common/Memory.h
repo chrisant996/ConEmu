@@ -45,8 +45,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 #endif
 
-#undef TRACK_MEMORY_ALLOCATIONS
-#define TESTS_MEMORY_MODE
 
 // Heap allocation routines
 
