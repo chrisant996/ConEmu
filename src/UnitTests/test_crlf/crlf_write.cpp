@@ -1,6 +1,6 @@
 ﻿
 /*
-Copyright (c) 2020-present Maximus5
+Copyright (c) 2021-present Maximus5
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -26,50 +26,15 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <gtest/gtest.h>
-#include <vector>
-#include <string>
+#include <Windows.h>
 
-namespace conemu {
-namespace tests {
-void PrepareGoogleTests();
-int RunLineFeedTest();
-int RunLineFeedTestXTerm();
-int RunLineFeedTestParent();
-int RunLineFeedTestChild();
-std::vector<std::string> gTestArgs;
-}  // namespace tests
-}  // namespace conemu
-
-// *******************
-TEST(ConEmuTest, Main)
+int main()
 {
-	const int val = 1;
-	EXPECT_EQ(val, 1);
-}
-
-int main(int argc, char** argv)
-{
-	conemu::tests::PrepareGoogleTests();
-
-	for (int i = 0; i < argc; ++i)
-	{
-		if (argv[i] && strcmp(argv[i], "RunLineFeedTest") == 0)
-			return conemu::tests::RunLineFeedTest();
-		if (argv[i] && strcmp(argv[i], "RunLineFeedTestXTerm") == 0)
-			return conemu::tests::RunLineFeedTestXTerm();
-		if (argv[i] && strcmp(argv[i], "RunLineFeedTestParent") == 0)
-			return conemu::tests::RunLineFeedTestParent();
-		if (argv[i] && strcmp(argv[i], "RunLineFeedTestChild") == 0)
-			return conemu::tests::RunLineFeedTestChild();
-	}
-	
-	::testing::InitGoogleTest(&argc, argv);
-	conemu::tests::gTestArgs.reserve(argc);
-	for (int i = 0; i < argc; ++i)
-	{
-		if (argv[i])
-			conemu::tests::gTestArgs.emplace_back(argv[i]);
-	}
-	return RUN_ALL_TESTS();
+	auto* hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	DWORD written = 0;
+	const char buffer[] = "AAA\nBBB\r\nCCC\r\n";
+	const int len = lstrlenA(buffer);
+	if (!WriteFile(hConOut, buffer, len, &written, nullptr) || written != len)
+		return 1;
+	return 0;
 }

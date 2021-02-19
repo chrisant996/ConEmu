@@ -34,6 +34,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../common/WConsole.h"
 #include "../common/MHandle.h"
 #include "../common/WObjects.h"
+#include "../common/EnvVar.h"
 
 namespace {
 void SetVirtualTermProcessing(const bool enable)
@@ -56,6 +57,351 @@ void test(void)
 {
 }
 
+}
+
+HWND WINAPI GetRealConsoleWindow();
+
+namespace conemu {
+namespace tests {
+namespace {
+void Write(const MHandle& hConOut, const std::wstring& line)
+{
+	DWORD written = 0;
+	WriteConsoleW(hConOut, line.c_str(), line.length(), &written, nullptr);
+}
+
+bool IsConEmuMode(const MHandle& hConOut)
+{
+	if (!GetRealConsoleWindow())
+	{
+		cdbg() << "Test is not functional, GetRealConsoleWindow is nullptr" << std::endl;
+		return false;
+	}
+	return true;
+}
+
+bool TestWrite(const MHandle& hConOut, const std::wstring& expected)
+{
+	DWORD outFlags = -1; GetConsoleMode(hConOut, &outFlags);
+	wchar_t buffer[255] = L"";
+	swprintf_s(buffer, 255, L"Current output console mode: 0x%08X (%s %s)\r\n", outFlags,
+		(outFlags & ENABLE_VIRTUAL_TERMINAL_PROCESSING) ? L"ENABLE_VIRTUAL_TERMINAL_PROCESSING" : L"!ENABLE_VIRTUAL_TERMINAL_PROCESSING",
+		(outFlags & DISABLE_NEWLINE_AUTO_RETURN) ? L"DISABLE_NEWLINE_AUTO_RETURN" : L"!DISABLE_NEWLINE_AUTO_RETURN");
+	Write(hConOut, buffer);
+
+	SetConsoleTextAttribute(hConOut, 14);
+	Write(hConOut, L"Print(AAA\\nBBB\\r\\nCCC)\r\n");
+	SetConsoleTextAttribute(hConOut, 7);
+
+	Write(hConOut, L"AAA\nBBB\r\nCCC\r\n");
+
+	bool result = true;
+	if (!expected.empty())
+	{
+		CONSOLE_SCREEN_BUFFER_INFO csbi{};
+		GetConsoleScreenBufferInfo(hConOut, &csbi);
+		CHAR_INFO readBuffer[6 * 3] = {};
+		SMALL_RECT rcRead = { 0, static_cast<SHORT>(csbi.dwCursorPosition.Y - 3), 5, static_cast<SHORT>(csbi.dwCursorPosition.Y - 1) };
+		ReadConsoleOutputW(hConOut, readBuffer, COORD{ 6, 3 }, COORD{ 0, 0 }, &rcRead);
+		std::wstring data;
+		for (const auto& ci : readBuffer)
+		{
+			data += ci.Char.UnicodeChar;
+		}
+		if (data == expected)
+		{
+			SetConsoleTextAttribute(hConOut, 10);
+			Write(hConOut, L"OK\r\n");
+		}
+		else
+		{
+			SetConsoleTextAttribute(hConOut, 12);
+			Write(hConOut, L"FAILED: '" + data + L"' != '" + expected + L"'\r\n");
+			result = false;
+		}
+		SetConsoleTextAttribute(hConOut, 7);
+	}
+	return result;
+}
+}
+
+int RunLineFeedTest()
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!IsConEmuMode(hConOut))
+		return 0;
+	
+	int result = 0;
+	DWORD outFlags = 0; GetConsoleMode(hConOut, &outFlags);
+	const bool isDefaultMode = (outFlags == (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT));
+	CONSOLE_SCREEN_BUFFER_INFO csbi{};
+	GetConsoleScreenBufferInfo(hConOut, &csbi);
+
+	SetConsoleTextAttribute(hConOut, 7);
+
+	if (!TestWrite(hConOut, isDefaultMode ? L"AAA   " L"BBB   " L"CCC   " : L""))
+		result = 1;
+
+	if (!isDefaultMode)
+	{
+		SetConsoleMode(hConOut, (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT));
+		if (!TestWrite(hConOut, L"AAA   " L"BBB   " L"CCC   "))
+			result = 1;
+	}
+
+	SetConsoleMode(hConOut, ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN);
+	if (!TestWrite(hConOut, L"AAA   " L"   BBB" L"CCC   "))
+		result = 1;
+
+	SetConsoleMode(hConOut, ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+	if (!TestWrite(hConOut, L"AAA   " L"BBB   " L"CCC   "))
+		result = 1;
+
+	SetConsoleMode(hConOut, ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | DISABLE_NEWLINE_AUTO_RETURN);
+	if (!TestWrite(hConOut, L"AAA   " L"   BBB" L"CCC   "))
+		result = 1;
+
+	SetConsoleMode(hConOut, ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN);
+	if (!TestWrite(hConOut, L"AAA   " L"   BBB" L"CCC   "))
+		result = 1;
+
+	SetConsoleMode(hConOut, outFlags);
+	SetConsoleTextAttribute(hConOut, csbi.wAttributes);
+	return result;
+}
+
+int RunLineFeedTestXTerm()
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!IsConEmuMode(hConOut))
+		return 0;
+	
+	int result = 0;
+	DWORD outFlags = 0;
+	// #TODO remove EXPECT? we have not initialized gtest
+	EXPECT_TRUE(GetConsoleMode(hConOut, &outFlags));
+	EXPECT_EQ((outFlags & (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)), 0);
+	CONSOLE_SCREEN_BUFFER_INFO csbi{};
+	GetConsoleScreenBufferInfo(hConOut, &csbi);
+
+	Write(hConOut, L"\x1B]9;10\x07");
+
+	Sleep(10 * 1000);
+	
+	if (!TestWrite(hConOut, L"AAA   " L"   BBB" L"CCC   "))
+		result = 1;
+
+	Sleep(10 * 1000);
+
+	SetConsoleTextAttribute(hConOut, csbi.wAttributes);
+	return result;
+}
+
+int RunLineFeedTestParent()
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!IsConEmuMode(hConOut))
+		return 0;
+
+	DWORD outFlags = 0; GetConsoleMode(hConOut, &outFlags);
+	SetConsoleMode(hConOut, (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN));
+	
+	int result = 0;
+	DWORD testOutFlags = 0;
+	// #TODO remove EXPECT? we have not initialized gtest
+	EXPECT_TRUE(GetConsoleMode(hConOut, &testOutFlags));
+	EXPECT_EQ((testOutFlags & (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)), (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN));
+	CONSOLE_SCREEN_BUFFER_INFO csbi{};
+	GetConsoleScreenBufferInfo(hConOut, &csbi);
+
+	STARTUPINFOW si{}; si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	CEStr testExe;
+	GetModulePathName(nullptr, testExe);
+	const CEStr envCmdLine(L"\"", testExe, L"\" RunLineFeedTestChild");
+	const CEStr cmdLine(ExpandEnvStr(envCmdLine));
+	const auto created = CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, false, NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi);
+	if (!created)
+	{
+		const DWORD errCode = GetLastError();
+		EXPECT_TRUE(created) << "create process failed, code=" << errCode << ", cmd=" << cmdLine.c_str() << std::endl;
+		result = 1;
+	}
+	else
+	{
+		const auto wait = WaitForSingleObject(pi.hProcess, 1000 * 180);
+		if (wait != WAIT_OBJECT_0)
+		{
+			EXPECT_EQ(wait, WAIT_OBJECT_0) << "process was not finished in time: " << cmdLine.c_str() << std::endl;
+			TerminateProcess(pi.hProcess, 255);
+			result = 2;
+		}
+		else
+		{
+			DWORD exitCode = 255;
+			EXPECT_TRUE(GetExitCodeProcess(pi.hProcess, &exitCode));
+			EXPECT_EQ(0, exitCode);
+			result = exitCode;
+		}
+	}
+
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+
+	SetConsoleTextAttribute(hConOut, csbi.wAttributes);
+	return result;
+}
+
+int RunLineFeedTestChild()
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!IsConEmuMode(hConOut))
+		return 0;
+	
+	int result = 0;
+	DWORD outFlags = 0;
+	EXPECT_TRUE(GetConsoleMode(hConOut, &outFlags));
+	EXPECT_EQ((outFlags & (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)), (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN));
+	CONSOLE_SCREEN_BUFFER_INFO csbi{};
+	GetConsoleScreenBufferInfo(hConOut, &csbi);
+
+	Sleep(10 * 1000);
+	
+	if (!TestWrite(hConOut, L"AAA   " L"   BBB" L"CCC   "))
+		result = 1;
+
+	Sleep(10 * 1000);
+
+	SetConsoleTextAttribute(hConOut, csbi.wAttributes);
+	return result;
+}
+}
+}
+
+TEST(Ansi, CheckLineFeed)
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!conemu::tests::IsConEmuMode(hConOut))
+		return;
+	
+	conemu::tests::InitConEmuPathVars();
+
+	STARTUPINFOW si{}; si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	CEStr testExe;
+	GetModulePathName(nullptr, testExe);
+	const CEStr envCmdLine("\"%ConEmuBaseDir%\\" ConEmuC_EXE_3264 L"\" -std -c \"", testExe, L"\" RunLineFeedTest");
+	const CEStr cmdLine(ExpandEnvStr(envCmdLine));
+	const auto created = CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, false, NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi);
+	if (!created)
+	{
+		const DWORD errCode = GetLastError();
+		EXPECT_TRUE(created) << "create process failed, code=" << errCode << ", cmd=" << cmdLine.c_str() << std::endl;
+		return;
+	}
+
+	const auto wait = WaitForSingleObject(pi.hProcess, 1000 * 180);
+	if (wait != WAIT_OBJECT_0)
+	{
+		EXPECT_EQ(wait, WAIT_OBJECT_0) << "process was not finished in time: " << cmdLine.c_str() << std::endl;
+		TerminateProcess(pi.hProcess, 255);
+	}
+	else
+	{
+		DWORD exitCode = 255;
+		EXPECT_TRUE(GetExitCodeProcess(pi.hProcess, &exitCode));
+		EXPECT_EQ(0, exitCode);
+	}
+
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+}
+
+TEST(Ansi, CheckLineFeedXTerm)
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!conemu::tests::IsConEmuMode(hConOut))
+		return;
+	
+	conemu::tests::InitConEmuPathVars();
+
+	DWORD outFlags = 0; GetConsoleMode(hConOut, &outFlags);
+	SetConsoleMode(hConOut, (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT));
+
+	STARTUPINFOW si{}; si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	CEStr testExe;
+	GetModulePathName(nullptr, testExe);
+	const CEStr envCmdLine("\"%ConEmuBaseDir%\\" ConEmuC_EXE_3264 L"\" -std -c \"", testExe, L"\" RunLineFeedTestXTerm");
+	const CEStr cmdLine(ExpandEnvStr(envCmdLine));
+	const auto created = CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, false, NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi);
+	if (!created)
+	{
+		const DWORD errCode = GetLastError();
+		EXPECT_TRUE(created) << "create process failed, code=" << errCode << ", cmd=" << cmdLine.c_str() << std::endl;
+		return;
+	}
+
+	const auto wait = WaitForSingleObject(pi.hProcess, 1000 * 180);
+	if (wait != WAIT_OBJECT_0)
+	{
+		EXPECT_EQ(wait, WAIT_OBJECT_0) << "process was not finished in time: " << cmdLine.c_str() << std::endl;
+		TerminateProcess(pi.hProcess, 255);
+	}
+	else
+	{
+		DWORD exitCode = 255;
+		EXPECT_TRUE(GetExitCodeProcess(pi.hProcess, &exitCode));
+		EXPECT_EQ(0, exitCode);
+	}
+
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+
+	SetConsoleMode(hConOut, outFlags);
+}
+
+TEST(Ansi, CheckLineFeedChild)
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!conemu::tests::IsConEmuMode(hConOut))
+		return;
+	
+	conemu::tests::InitConEmuPathVars();
+
+	DWORD outFlags = 0; GetConsoleMode(hConOut, &outFlags);
+
+	STARTUPINFOW si{}; si.cb = sizeof(si);
+	PROCESS_INFORMATION pi{};
+	CEStr testExe;
+	GetModulePathName(nullptr, testExe);
+	const CEStr envCmdLine("\"%ConEmuBaseDir%\\" ConEmuC_EXE_3264 L"\" -std -c \"", testExe, L"\" RunLineFeedTestParent");
+	const CEStr cmdLine(ExpandEnvStr(envCmdLine));
+	const auto created = CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, false, NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi);
+	if (!created)
+	{
+		const DWORD errCode = GetLastError();
+		EXPECT_TRUE(created) << "create process failed, code=" << errCode << ", cmd=" << cmdLine.c_str() << std::endl;
+		return;
+	}
+
+	const auto wait = WaitForSingleObject(pi.hProcess, 1000 * 180);
+	if (wait != WAIT_OBJECT_0)
+	{
+		EXPECT_EQ(wait, WAIT_OBJECT_0) << "process was not finished in time: " << cmdLine.c_str() << std::endl;
+		TerminateProcess(pi.hProcess, 255);
+	}
+	else
+	{
+		DWORD exitCode = 255;
+		EXPECT_TRUE(GetExitCodeProcess(pi.hProcess, &exitCode));
+		EXPECT_EQ(0, exitCode);
+	}
+
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+
+	SetConsoleMode(hConOut, outFlags);
 }
 
 TEST(Ansi, CheckXTermInChain)
