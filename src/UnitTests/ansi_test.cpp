@@ -31,50 +31,36 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../common/defines.h"
 #include "gtest.h"
+#include "../common/ConEmuCheck.h"
 #include "../common/WConsole.h"
 #include "../common/MHandle.h"
 #include "../common/WObjects.h"
 #include "../common/EnvVar.h"
-
-namespace {
-void SetVirtualTermProcessing(const bool enable)
-{
-	/* Set xterm mode for output */
-	const MHandle h = GetStdHandle(STD_OUTPUT_HANDLE);
-	DWORD dwMode = 0;
-	ASSERT_TRUE(GetConsoleMode(h, &dwMode));
-	if (enable)
-	{
-		ASSERT_TRUE(SetConsoleMode(h, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
-	}
-	else
-	{
-		ASSERT_TRUE(SetConsoleMode(h, dwMode & ~ENABLE_VIRTUAL_TERMINAL_PROCESSING));
-	}
-}
-
-void test(void)
-{
-}
-
-}
+#include "../common/MWnd.h"
 
 HWND WINAPI GetRealConsoleWindow();
 
 namespace conemu {
 namespace tests {
 namespace {
+DWORD GetMode(const MHandle& h)
+{
+	DWORD mode = 0;
+	EXPECT_TRUE(GetConsoleMode(h, &mode));
+	return mode;
+}
+
 void Write(const MHandle& hConOut, const std::wstring& line)
 {
 	DWORD written = 0;
-	WriteConsoleW(hConOut, line.c_str(), line.length(), &written, nullptr);
+	WriteConsoleW(hConOut, line.c_str(), static_cast<uint32_t>(line.length()), &written, nullptr);
 }
 
-bool IsConEmuMode(const MHandle& hConOut)
+bool IsConEmuMode(const MHandle& hConOut, const std::string& testName)
 {
 	if (!GetRealConsoleWindow())
 	{
-		cdbg() << "Test is not functional, GetRealConsoleWindow is nullptr" << std::endl;
+		cdbg() << "Test " << testName << " is not functional, GetRealConsoleWindow is nullptr" << std::endl;
 		return false;
 	}
 	return true;
@@ -82,7 +68,7 @@ bool IsConEmuMode(const MHandle& hConOut)
 
 bool TestWrite(const MHandle& hConOut, const std::wstring& expected)
 {
-	DWORD outFlags = -1; GetConsoleMode(hConOut, &outFlags);
+	const DWORD outFlags = GetMode(hConOut);
 	wchar_t buffer[255] = L"";
 	swprintf_s(buffer, 255, L"Current output console mode: 0x%08X (%s %s)\r\n", outFlags,
 		(outFlags & ENABLE_VIRTUAL_TERMINAL_PROCESSING) ? L"ENABLE_VIRTUAL_TERMINAL_PROCESSING" : L"!ENABLE_VIRTUAL_TERMINAL_PROCESSING",
@@ -128,11 +114,11 @@ bool TestWrite(const MHandle& hConOut, const std::wstring& expected)
 int RunLineFeedTest()
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!IsConEmuMode(hConOut))
+	if (!IsConEmuMode(hConOut, __FUNCTION__))
 		return 0;
 	
 	int result = 0;
-	DWORD outFlags = 0; GetConsoleMode(hConOut, &outFlags);
+	const DWORD outFlags = GetMode(hConOut);
 	const bool isDefaultMode = (outFlags == (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT));
 	CONSOLE_SCREEN_BUFFER_INFO csbi{};
 	GetConsoleScreenBufferInfo(hConOut, &csbi);
@@ -173,13 +159,12 @@ int RunLineFeedTest()
 int RunLineFeedTestXTerm()
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!IsConEmuMode(hConOut))
+	if (!IsConEmuMode(hConOut, __FUNCTION__))
 		return 0;
 	
 	int result = 0;
-	DWORD outFlags = 0;
+	const DWORD outFlags = GetMode(hConOut);
 	// #TODO remove EXPECT? we have not initialized gtest
-	EXPECT_TRUE(GetConsoleMode(hConOut, &outFlags));
 	EXPECT_EQ((outFlags & (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)), 0);
 	CONSOLE_SCREEN_BUFFER_INFO csbi{};
 	GetConsoleScreenBufferInfo(hConOut, &csbi);
@@ -200,16 +185,15 @@ int RunLineFeedTestXTerm()
 int RunLineFeedTestParent()
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!IsConEmuMode(hConOut))
+	if (!IsConEmuMode(hConOut, __FUNCTION__))
 		return 0;
 
-	DWORD outFlags = 0; GetConsoleMode(hConOut, &outFlags);
+	const DWORD outFlags = GetMode(hConOut);
 	SetConsoleMode(hConOut, (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN));
 	
 	int result = 0;
-	DWORD testOutFlags = 0;
+	const DWORD testOutFlags = GetMode(hConOut);
 	// #TODO remove EXPECT? we have not initialized gtest
-	EXPECT_TRUE(GetConsoleMode(hConOut, &testOutFlags));
 	EXPECT_EQ((testOutFlags & (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)), (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN));
 	CONSOLE_SCREEN_BUFFER_INFO csbi{};
 	GetConsoleScreenBufferInfo(hConOut, &csbi);
@@ -248,6 +232,7 @@ int RunLineFeedTestParent()
 	CloseHandle(pi.hProcess);
 	CloseHandle(pi.hThread);
 
+	SetConsoleMode(hConOut, outFlags);
 	SetConsoleTextAttribute(hConOut, csbi.wAttributes);
 	return result;
 }
@@ -255,12 +240,11 @@ int RunLineFeedTestParent()
 int RunLineFeedTestChild()
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!IsConEmuMode(hConOut))
+	if (!IsConEmuMode(hConOut, __FUNCTION__))
 		return 0;
 	
 	int result = 0;
-	DWORD outFlags = 0;
-	EXPECT_TRUE(GetConsoleMode(hConOut, &outFlags));
+	const DWORD outFlags = GetMode(hConOut);
 	EXPECT_EQ((outFlags & (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN)), (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN));
 	CONSOLE_SCREEN_BUFFER_INFO csbi{};
 	GetConsoleScreenBufferInfo(hConOut, &csbi);
@@ -275,13 +259,133 @@ int RunLineFeedTestChild()
 	SetConsoleTextAttribute(hConOut, csbi.wAttributes);
 	return result;
 }
+
+// Set xterm mode for output and exit
+int RunXTermTestChild()
+{
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!IsConEmuMode(hConOut, __FUNCTION__))
+		return 0;
+
+	const DWORD dwMode = GetMode(hConOut);
+	EXPECT_TRUE(SetConsoleMode(hConOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+	return 0;
+}
+
+// Set xterm mode for output and run child process (which does the same thing).
+// We should be still in the xterm mode on child exit.
+int RunXTermTestParent()
+{
+	const MWnd realConWnd = GetRealConsoleWindow();
+	if (!realConWnd)
+	{
+		cdbg() << "Test " << __FUNCTION__ << " is not functional, GetRealConsoleWindow is nullptr" << std::endl;
+		return 0;
+	}
+	CESERVER_CONSOLE_MAPPING_HDR srvMap{};
+	if (!LoadSrvMapping(realConWnd, srvMap) || !srvMap.hConEmuWndDc)
+	{
+		cdbg() << "Test " << __FUNCTION__ << " is not functional, LoadSrvMapping failed" << std::endl;
+		return 0;
+	}
+
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	const MHandle hIn = GetStdHandle(STD_INPUT_HANDLE);
+
+	const DWORD inModeOrig = GetMode(hIn);
+	const DWORD outModeOrig = GetMode(hConOut);
+
+	// Set output console mode
+	DWORD outMode = outModeOrig;
+	outMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	SetConsoleMode(hConOut, outMode);
+
+	// Set input console mode
+	DWORD inMode = inModeOrig;
+	inMode &= ~ENABLE_LINE_INPUT;
+	inMode &= ~ENABLE_ECHO_INPUT;
+	inMode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+	SetConsoleMode(hIn, inMode);
+
+	// Start another process which sets xterm mode enabled
+	{
+		STARTUPINFOW si{};
+		PROCESS_INFORMATION pi{};
+		si.cb = sizeof(si);
+		CEStr testExe;
+		GetModulePathName(nullptr, testExe);
+		const CEStr envCmdLine("\"%ConEmuBaseDir%\\" ConEmuC_EXE_3264 L"\" -std -c \"", testExe, L"\" RunXTermTestChild");
+		const CEStr cmdLine(ExpandEnvStr(envCmdLine));
+		const bool created = CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
+		if (!created)
+		{
+			EXPECT_TRUE(created) << "command: " << cmdLine.c_str() << std::endl;
+		}
+		else
+		{
+			WaitForSingleObject(pi.hProcess, INFINITE);
+			Sleep(1000);
+			CloseHandle(pi.hProcess);
+			CloseHandle(pi.hThread);
+		}
+	}
+	
+	{
+		DWORD mode = 0;
+		EXPECT_TRUE(GetConsoleMode(hIn, &mode));
+		if (mode != inMode)
+		{
+			EXPECT_EQ(mode, inMode);
+			EXPECT_TRUE(SetConsoleMode(hIn, inMode));
+		}
+		EXPECT_TRUE(GetConsoleMode(hConOut, &mode));
+		if (mode != outMode)
+		{
+			EXPECT_EQ(mode, outMode);
+			EXPECT_TRUE(SetConsoleMode(hConOut, outMode));
+		}
+	}
+
+	// Request for AppKeys mode (cursor keys are sent with `ESC O`)
+	{
+		DWORD written = 0;
+		EXPECT_TRUE(WriteConsoleA(hConOut, "\033[?1h", 5, &written, nullptr));
+	}
+
+	// Clean the input buffer
+	{
+		INPUT_RECORD ir[32]{}; DWORD count = 0;
+		while (PeekConsoleInputW(hIn, ir, 32, &count) && count)
+		{
+			if (!ReadConsoleInputW(hIn, ir, count, &count) || !count)
+				break;
+		}
+	}
+
+	// Check what is sent through input queue
+	{
+		PostMessage(srvMap.hConEmuWndDc, WM_KEYDOWN, VK_UP, 0);
+		PostMessage(srvMap.hConEmuWndDc, WM_KEYUP, VK_UP, (1U << 31) | (1U << 30));
+
+		char buffer[32] = "";
+		DWORD readCount = 0;
+		EXPECT_TRUE(ReadConsoleA(hIn, buffer, sizeof(buffer), &readCount, nullptr));
+		EXPECT_EQ(readCount, 3);
+		EXPECT_STREQ(buffer, "\x1b\x4f\x41");
+	}
+
+	SetConsoleMode(hIn, inModeOrig);
+	SetConsoleMode(hConOut, outModeOrig);
+
+	return 0;
+}
 }
 }
 
 TEST(Ansi, CheckLineFeed)
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!conemu::tests::IsConEmuMode(hConOut))
+	if (!conemu::tests::IsConEmuMode(hConOut, __FUNCTION__))
 		return;
 	
 	conemu::tests::InitConEmuPathVars();
@@ -320,7 +424,7 @@ TEST(Ansi, CheckLineFeed)
 TEST(Ansi, CheckLineFeedXTerm)
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!conemu::tests::IsConEmuMode(hConOut))
+	if (!conemu::tests::IsConEmuMode(hConOut, __FUNCTION__))
 		return;
 	
 	conemu::tests::InitConEmuPathVars();
@@ -364,7 +468,7 @@ TEST(Ansi, CheckLineFeedXTerm)
 TEST(Ansi, CheckLineFeedChild)
 {
 	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (!conemu::tests::IsConEmuMode(hConOut))
+	if (!conemu::tests::IsConEmuMode(hConOut, __FUNCTION__))
 		return;
 	
 	conemu::tests::InitConEmuPathVars();
@@ -406,108 +510,31 @@ TEST(Ansi, CheckLineFeedChild)
 
 TEST(Ansi, CheckXTermInChain)
 {
-	const MHandle hIn = GetStdHandle(STD_INPUT_HANDLE);
-	const MHandle hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-
-	auto getMode = [](const MHandle& h)
-	{
-		DWORD mode = 0;
-		EXPECT_TRUE(GetConsoleMode(h, &mode));
-		return mode;
-	};
-
-	auto isOutputRedirected = [&hOut]() {
-		CONSOLE_SCREEN_BUFFER_INFO sbi = {};
-		const BOOL bIsConsole = GetConsoleScreenBufferInfo(hOut, &sbi);
-		return bIsConsole;
-	};
-
-	enum class TestMode { ParentXTerm, ChildXTerm };
-	auto testMode = TestMode::ParentXTerm;
-	
-	const std::string prefix = "ConOutMode=";
-	for (const auto& param : conemu::tests::gTestArgs)
-	{
-		if (param.substr(0, prefix.length()) != prefix)
-			continue;
-		cdbg() << "ConOutMode found: " << param.substr(prefix.length()) << std::endl;
-		if (param.substr(prefix.length()) == "Child")
-		{
-			testMode = TestMode::ChildXTerm;
-		}
-		break;
-	}
-
-	if (testMode == TestMode::ChildXTerm)
-	{
-		// xterm mode for output
-		const DWORD dwMode = getMode(hIn);
-		ASSERT_TRUE(SetConsoleMode(hIn, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+	const MHandle hConOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (!conemu::tests::IsConEmuMode(hConOut, __FUNCTION__))
 		return;
-	}
-
-	const DWORD inModeOrig = getMode(hIn);
-	const DWORD outModeOrig = getMode(hOut);
-
-	// Set output console mode
-	DWORD outMode = outModeOrig;
-	outMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-	SetConsoleMode(hOut, outMode);
-
-	// Set input console mode
-	DWORD inMode = inModeOrig;
-	inMode &= ~ENABLE_LINE_INPUT;
-	inMode &= ~ENABLE_ECHO_INPUT;
-	inMode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
-	SetConsoleMode(hIn, inMode);
-
-	// Start another process which sets xterm mode enabled
+	
+	STARTUPINFOW si{};
+	PROCESS_INFORMATION pi{};
+	si.cb = sizeof(si);
+	CEStr testExe;
+	GetModulePathName(nullptr, testExe);
+	const CEStr envCmdLine("\"%ConEmuBaseDir%\\" ConEmuC_EXE_3264 L"\" -std -c \"", testExe, L"\" RunXTermTestParent");
+	const CEStr cmdLine(ExpandEnvStr(envCmdLine));
+	const bool created = CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi);
+	if (!created)
 	{
-		CEStr exePath;
-		EXPECT_LT(0U, GetModulePathName(nullptr, exePath));
-		STARTUPINFOW si = { };
-		PROCESS_INFORMATION pi = { };
-		si.cb = sizeof(si);
-		const CEStr commandLine(L"\"", exePath, L"\" --gtest_filter=Ansi.CheckXTermInChain ConOutMode=Child");
-		EXPECT_TRUE(CreateProcessW(nullptr, commandLine.data(),
-			nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi));
+		EXPECT_TRUE(created) << "command: " << cmdLine.c_str() << std::endl;
+	}
+	else
+	{
 		WaitForSingleObject(pi.hProcess, INFINITE);
-		Sleep(500);
+
+		DWORD exitCode = 999;
+		EXPECT_TRUE(GetExitCodeProcess(pi.hProcess, &exitCode));
+		EXPECT_EQ(0, exitCode);
+		
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
 	}
-	
-	{
-		DWORD mode = 0;
-		EXPECT_TRUE(GetConsoleMode(hIn, &mode));
-		if (mode != inMode)
-		{
-			EXPECT_EQ(mode, inMode);
-			EXPECT_TRUE(SetConsoleMode(hIn, inMode));
-		}
-		EXPECT_TRUE(GetConsoleMode(hOut, &mode));
-		if (mode != outMode)
-		{
-			EXPECT_EQ(mode, outMode);
-			EXPECT_TRUE(SetConsoleMode(hOut, outMode));
-		}
-	}
-
-	{
-		DWORD written = 0;
-		EXPECT_TRUE(WriteConsoleA(hOut, "\033[?1h", 5, &written, nullptr));
-	}
-
-	{ /* Read keys */
-		char buffer[32] = "";
-		DWORD readCount = 0;
-		DWORD i;
-		EXPECT_TRUE(ReadConsoleA(hIn, buffer, sizeof(buffer), &readCount, nullptr));
-		printf("%d: ", readCount);
-		for (i = 0; i < readCount; i++) printf("%02x,", buffer[i]);
-		printf("\n");
-	}
-
-	SetConsoleMode(hIn, inModeOrig);
-	SetConsoleMode(hOut, outModeOrig);
 }

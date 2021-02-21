@@ -37,6 +37,8 @@ int RunLineFeedTest();
 int RunLineFeedTestXTerm();
 int RunLineFeedTestParent();
 int RunLineFeedTestChild();
+int RunXTermTestChild();
+int RunXTermTestParent();
 std::vector<std::string> gTestArgs;
 }  // namespace tests
 }  // namespace conemu
@@ -62,6 +64,10 @@ int main(int argc, char** argv)
 			return conemu::tests::RunLineFeedTestParent();
 		if (argv[i] && strcmp(argv[i], "RunLineFeedTestChild") == 0)
 			return conemu::tests::RunLineFeedTestChild();
+		if (argv[i] && strcmp(argv[i], "RunXTermTestChild") == 0)
+			return conemu::tests::RunXTermTestChild();
+		if (argv[i] && strcmp(argv[i], "RunXTermTestParent") == 0)
+			return conemu::tests::RunXTermTestParent();
 	}
 	
 	::testing::InitGoogleTest(&argc, argv);
